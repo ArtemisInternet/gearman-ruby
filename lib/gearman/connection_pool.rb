@@ -19,20 +19,11 @@ module Gearman
       start_reconnect_thread
     end
 
-    def deactivate_connection(connection)
-      @job_servers.reject! { |c| c == connection }
-      @bad_servers << connection
-    end
-
-    def activate_connection(connection)
-      @bad_servers.reject! { |c| c == connection }
-      @job_servers << connection
-    end
-
     def add_connection(connection)
       @servers_mutex.synchronize do
         if connection.is_healthy?
           activate_connection(connection)
+
           @connection_handler.call(connection) if @connection_handler
         else
           deactivate_connection(connection)
@@ -60,37 +51,11 @@ module Gearman
 
     def get_connection(coalesce_key = nil)
       @servers_mutex.synchronize do
+
         logger.debug "Available job servers: #{@job_servers.inspect}"
         raise NoJobServersError if @job_servers.empty?
         @server_counter += 1
         @job_servers[@server_counter % @job_servers.size]
-      end
-    end
-
-    def start_reconnect_thread
-      Thread.new do
-        loop do
-          @servers_mutex.synchronize do
-            # If there are any failed servers, try to reconnect to them.
-            update_job_servers unless @bad_servers.empty?
-          end
-          sleep @reconnect_seconds
-        end
-      end.run
-    end
-
-    def update_job_servers
-      logger.debug "Found #{@bad_servers.size} zombie connections, checking pulse."
-      @bad_servers.each do |connection|
-        begin
-          message = "Testing server #{connection}..."
-          if connection.is_healthy?
-            logger.debug "#{message} Connection is healthy, putting back into service"
-            activate_connection(connection)
-          else
-            logger.debug "#{message} Still down."
-          end
-        end
       end
     end
 
@@ -117,6 +82,47 @@ module Gearman
         end
       end
     end
+
+
+    private
+
+      def deactivate_connection(connection)
+        @job_servers.reject! { |c| c == connection }
+        @bad_servers << connection
+      end
+
+      def activate_connection(connection)
+        @bad_servers.reject! { |c| c == connection }
+        @job_servers << connection
+      end
+
+      def start_reconnect_thread
+        Thread.new do
+          loop do
+            @servers_mutex.synchronize do
+              # If there are any failed servers, try to reconnect to them.
+              update_job_servers unless @bad_servers.empty?
+            end
+            sleep @reconnect_seconds
+          end
+        end.run
+      end
+
+      def update_job_servers
+        logger.debug "Found #{@bad_servers.size} zombie connections, checking pulse."
+        @bad_servers.each do |connection|
+          begin
+            message = "Testing server #{connection}..."
+            if connection.is_healthy?
+              logger.debug "#{message} Connection is healthy, putting back into service"
+              activate_connection(connection)
+            else
+              logger.debug "#{message} Still down."
+            end
+          end
+        end
+      end
+
 
   end
 end

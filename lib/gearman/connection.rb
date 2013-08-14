@@ -1,3 +1,5 @@
+require 'socket'
+
 module Gearman
   class Connection
     include Logging
@@ -19,7 +21,7 @@ module Gearman
         logger.debug "Performing health check for #{self}"
         begin
           request = Packet.pack_request("echo_req", "ping")
-          response = send_request(request, 1)
+          response = send_request(request, 3)
           logger.debug "Health check response for #{self} is #{response.inspect}"
           raise ProtocolError unless response[0] == :echo_res and response[1] == "ping"
           return true
@@ -42,8 +44,10 @@ module Gearman
       return @real_socket if @real_socket
       num_retries.times do |i|
         begin
+          logger.debug("Attempt ##{i} to connect to #{hostname}:#{port}")
           @real_socket = TCPSocket.new(hostname, port)
-        rescue Exception
+        rescue Exception => e
+          logger.error("Unable to connect: #{e}")
           # Swallow error so we can retry -> num_retries times
         else
           return @real_socket
